@@ -7,3 +7,20 @@ The Client-server application with transfer protection
 - Diffie-Hellman Protocol
 - RC4 (stream cipher)
 - Chat
+
+## Requirements
+
+```
+pip install -U -r requirements.txt
+```
+
+## Database authentication
+
+```json
+// The auth data server/db/auth.json
+// login and md5 password
+{
+	"Test1": "32a7750f6d9e215c9ecddcd5316cb3f5",
+	"Test2": "a72ea41c7d6e35937db43df0c5652f7e"
+}
+```
