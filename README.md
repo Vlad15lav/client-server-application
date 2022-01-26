@@ -20,7 +20,7 @@ pip install -U -r requirements.txt
 // The auth data server/db/auth.json
 // login and md5 password
 {
-	"Test1": "32a7750f6d9e215c9ecddcd5316cb3f5",
-	"Test2": "a72ea41c7d6e35937db43df0c5652f7e"
+	"Test1": "32a7750f6d9e215c9ecddcd5316cb3f5", // 12345test1
+	"Test2": "a72ea41c7d6e35937db43df0c5652f7e" // 12345test2
 }
 ```
