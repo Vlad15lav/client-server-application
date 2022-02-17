@@ -16,8 +16,15 @@ The Client-server application with transfer protection
 pip install -U -r requirements.txt
 ```
 
-## Database authentication
+## Create Database
 
-```json
+```
+python create_db.py
+```
 
+## Start applications
+
+Start server and client:
+```
+python main.py
 ```
