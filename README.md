@@ -17,7 +17,7 @@ pip install -U -r requirements.txt
 ```
 
 ## Create Database
-
+Start MySQL server and run this script:
 ```
 python create_db.py
 ```
