@@ -28,3 +28,10 @@ Start server and client:
 ```
 python main.py
 ```
+
+## Interface applications
+### Server interface
+<img src="/imgs/server.png" alt="drawing" width="450"/>
+
+### Client interface
+<img src="/imgs/client.png" alt="drawing" width="450"/>
