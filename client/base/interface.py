@@ -3,6 +3,7 @@ import threading
 
 from tkinter import *
 from tkinter import messagebox as mb
+from tkinter import filedialog as fd
 from datetime import datetime
 
 from base.client import Client
@@ -43,8 +44,9 @@ class MainForm(Frame):
         self.text_console = Text(self.chat_frame, bg="#17202A", fg="#EAECEE", state='disabled')
         
         self.entry = Entry(self.chat_frame, bg="#2c3e50", fg="#EAECEE")
-        self.entry.bind('<Return>', self.send_button)
-        self.button = Button(self.chat_frame, text='Send', bg='gray', command=self.send_button)
+        self.entry.bind('<Return>', self.__button_send_message)
+        self.btn_send = Button(self.chat_frame, text='Send', bg='gray', command=self.__button_send_message)
+        self.btn_file = Button(self.chat_frame, text='File', bg='gray', command=self.__button_send_file)
 
         self.parent.protocol("WM_DELETE_WINDOW", self.on_closing)
 
@@ -55,8 +57,9 @@ class MainForm(Frame):
         self.button_sign_in.place(x=410, y=5, width=80, height=22)
         self.text_console.place(x=10, y=35, width=480, height=260)
 
-        self.entry.place(x=10, y=308, width=390, height=22)
-        self.button.place(x=410, y=308, width=80, height=22)
+        self.entry.place(x=10, y=308, width=310, height=22)
+        self.btn_send.place(x=325, y=308, width=80, height=23)
+        self.btn_file.place(x=410, y=308, width=80, height=23)
 
     # centring window
     def centerWindow(self):
@@ -73,7 +76,7 @@ class MainForm(Frame):
     def on_closing(self):
         if mb.askokcancel("Quit", "Do you want to quit?"):
             if self.client.is_connect:
-                self.client.send_message('STATE:CLOSE')
+                self.client.send_message('STATE CLOSE')
                 self.client.close_connect()
                 self.client.write_console('Close connection!')
             self.parent.destroy()
@@ -140,7 +143,8 @@ class MainForm(Frame):
         self.root_auth.destroy()
 
     # send message button
-    def send_button(self, event=None):
+    def __button_send_message(self, event=None):
+        # check connection
         if not self.client.is_connect:
             return
 
@@ -151,9 +155,35 @@ class MainForm(Frame):
         self.client.write_console(f"{self.var_login.get()}: {message}")
         self.entry.delete(0, END)
 
-        snd = threading.Thread(target=self.send_message, args=(message,))
+        snd = threading.Thread(target=self.__send_message, args=(message,))
+        snd.start()
+
+    def __button_send_file(self, event=None):
+        # check connection
+        if not self.client.is_connect:
+           return
+
+        file_path = fd.askopenfilename(
+            title='Open a file',
+            initialdir='/',
+            filetypes=(('text files', '*.txt'), ('All files', '*.*')))
+        
+        if len(file_path) == 0:
+            return
+
+        file_type = file_path.split('.')[-1]
+        with open(file_path, "rb") as f:
+            file_bytes = f.read()
+
+        snd_signal = threading.Thread(target=self.__send_message, args=("STATE FILE",))
+        snd_signal.start()
+        snd = threading.Thread(target=self.__send_file, args=(file_bytes, file_type))
         snd.start()
 
     # send message method
-    def send_message(self, message):
+    def __send_message(self, message):
         self.client.send_message(message)
+
+    # send file method
+    def __send_file(self, data, file_type):
+        self.client.send_file(data, file_type)

@@ -4,11 +4,13 @@ import threading
 
 from datetime import datetime, timedelta
 from tkinter import *
+from tkinter import filedialog as fd
 from hashlib import md5
 
 from db.database import MySQL
 from config.config import settings
-from tools.gen import generate_prime, generate_number
+from tools.gen import generate_prime, generate_number, generate_primitive
+from cryptography.rsa import RSA
 
 class Server:
 	def __init__(self, console):
@@ -23,9 +25,18 @@ class Server:
 
 		self.database = MySQL()
 
+		# thread for calculate RSA and DH
+		self.thread_cryp = threading.Thread(target=self.__init_cryptography, args=())
+		self.thread_cryp.start()
+
+	def __init_cryptography(self):
+		self.g, self.p = generate_primitive(settings['LENGTH_G'], settings['LENGTH_P'], count_div=8)
+		self.rsa = RSA(settings['LENGTH_RSA'])
+		self.e, self.n = self.rsa.get_public()
+
 	# recv all package in one
 	def recvall(self, sock):
-		BUFF_SIZE = 4096  # 4 KiB
+		BUFF_SIZE = 1024  # 4 KiB
 		data = b''
 		while True:
 			part = sock.recv(BUFF_SIZE)
@@ -57,6 +68,7 @@ class Server:
 			return False
 		self.console.insert(END, "MySQL Database connected!\n")
 
+		self.thread_cryp.join() # wait calculate
 		self.thread_listen = threading.Thread(target=self.listen, args=())
 		self.thread_listen.start()
 
@@ -67,7 +79,7 @@ class Server:
 
 	# stop server
 	def stop(self):
-		self.send_broadcast("STATE:CLOSE")
+		self.send_broadcast("STATE CLOSE")
 		self.server.close()
 		for k, v in self.online.items():
 			try:
@@ -94,7 +106,7 @@ class Server:
 				qr = self.database.select('SELECT * FROM Users WHERE Login = "{}"'.format(data_login))
 				# check login name
 				if len(qr) == 0:
-					user.send("AUTH:404".encode(settings['FORMAT']))
+					user.send("AUTH 404".encode(settings['FORMAT']))
 					self.write_console(f"{'{}:{}'.format(*addr)} failed authentication!")
 					continue # auth is failed
 				id_user, login_user, pass_hash = qr[0]
@@ -131,37 +143,80 @@ class Server:
 
 				# check hash
 				if final_hash != hash_user:
-					user.send("AUTH:404".encode(settings['FORMAT']))
+					user.send("AUTH 404".encode(settings['FORMAT']))
 					self.write_console(f"{'{}:{}'.format(*addr)} failed authentication!")
 					continue
 
-				user.send("AUTH:200".encode(settings['FORMAT']))
+				# Diffie–Hellman protocol
+				a = generate_number(settings['LENGTH_A'])
+				A = pow(self.g, a, self.p)
+				# send parameters
+				user.send(f"AUTH 200:{self.g}:{self.p}:{A}".encode(settings['FORMAT']))
+				# recv parameters by client
+				B = int(user.recv(1024).decode(settings['FORMAT']))
+				Key = pow(B, a, self.p)
 
-				### TODO: DH
+				## send RSA public key by server
+				user.send(f"{self.e}:{self.n}".encode(settings['FORMAT']))
+				## recv RSA public key by client
+				pub_key_client = user.recv(1024).decode(settings['FORMAT']).split(':')
+				pub_key_client = list(map(int, pub_key_client))
 
 				self.online[data_login] = user
-				thread = threading.Thread(target=self.handle, args=(user, addr, data_login))
+				thread = threading.Thread(target=self.handle, args=(user, addr,
+																	data_login, pub_key_client))
 				thread.start()
 
 			except Exception as e:
+				print(e)
 				break
 
 	# handle the incoming messages
-	def handle(self, user, addr, login, cipher=None):
+	def handle(self, user, addr, login, pub_key_client, cipher=None):
 		self.write_console(f'{login} is connected!')
+		e, n = pub_key_client
 
 		while True:
 			try:
-				message = user.recv(1024).decode(settings['FORMATMSG'])
+				message = user.recv(1024).decode(settings['FORMATMSG']).split(':')
 				#message = cipher.encode(message).decode(settings['FORMATMSG'])
 
-				if message == 'STATE:CLOSE':
+				if message[0] == 'STATE CLOSE':
 					user.close() # close the connection
 					del self.online[login]
 					break
-				elif len(message) > 0:
-					self.write_console(f"{login}: {message}")
+
+				elif message[0] == 'STATE FILE':
+					self.write_console(f"{login} is sending the file!")
+					file_info = self.recvall(user)
+					file_info = file_info.split(b':')
+					sign = int(file_info[0].decode(settings['FORMATMSG']))
+					file_type = file_info[1].decode(settings['FORMATMSG'])
+
+					# check digital signature
+					sign_hash = pow(sign, e, n)
+					if sign_hash != int(md5(file_info[-1]).hexdigest(), 16):
+						self.write_console(f"Violation of {login}'s file integrity!")
+						continue
+
+					# dialog for path of save
+					f = fd.asksaveasfile(
+						mode='wb',
+						title='Save a file',
+						initialdir='/',
+						defaultextension=f".{file_type}",
+						filetypes=((f'{file_type} files', f"*.{file_type}"),))
+					if f is None:
+						continue
+
+					f.write(file_info[-1])
+					f.close()
+					self.write_console(f"{login}'s file is saved!")
+
+				elif len(message[0]) > 0:
+					self.write_console(f"{login}: {message[0]}")
 			except Exception as e:
+				print(e)
 				break
 
 		self.write_console(f'{login} left server!')
@@ -175,3 +230,10 @@ class Server:
 	def send_broadcast(self, msg):
 		for k, v in self.online.items():
 			v.send(msg.encode(settings['FORMATMSG']))
+
+	# send file method
+	def send_file(self, data, file_type):
+		hash_file = int(md5(data).hexdigest(), 16)
+		sign = self.rsa.decode(hash_file)
+		for k, v in self.online.items():
+			v.send(f"{sign}:{file_type}".encode(settings['FORMAT']) + b':' + data)

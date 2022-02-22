@@ -20,3 +20,30 @@ def generate_public(length: int, euler: int) -> int:
     e = generate_number(length)
     while find_gcd(e, euler) != 1: e += 1
     return e
+
+# generate primitive root modulo p
+def generate_primitive(length_g: int, length_p: int, count_div: int=4) -> tuple:
+    fact = [2]
+    p = 2
+    for _ in range(count_div - 1):
+        p_i = generate_prime(length_p // (count_div - 1))
+        fact.append(p_i)
+        p *= p_i
+    
+    while not solovay_strassen(p + 1):
+        p //= fact[-1]
+        fact[-1] = generate_prime(length_p // (count_div - 1))
+        p *= fact[-1]
+    p = p + 1
+    size = len(fact)
+
+    phi = p - 1
+    g = generate_number(length_g)
+    for res in range(g, p + 1):
+        flag = True
+        i = 0
+        while i < size and flag:
+            flag &= pow(res, phi // fact[i], p) != 1
+            i += 1
+        if flag: return res, p
+    return -1, -1

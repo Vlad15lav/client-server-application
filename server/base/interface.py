@@ -4,6 +4,7 @@ import socket
 import threading
 
 from tkinter import *
+from tkinter import filedialog as fd
 from tkinter import messagebox as mb
 from base.server import Server
 
@@ -52,8 +53,9 @@ class MainForm(Frame):
 
         # entry commands
         self.entry = Entry(self.frame)
-        self.entry.bind('<Return>', self.__button_send)
-        self.button = Button(self.frame, text='Send', bg='gray', command=self.__button_send)
+        self.entry.bind('<Return>', self.__button_send_message)
+        self.btn_send = Button(self.frame, text='Send', bg='gray', command=self.__button_send_message)
+        self.btn_file = Button(self.frame, text='File', bg='gray', command=self.__button_send_file)
 
     def showUI(self):
         self.frame.place(relx=0, rely=0, relwidth=1, relheight=1)
@@ -72,8 +74,9 @@ class MainForm(Frame):
         self.text_console.place(x=10, y=80, width=530, height=455)
 
         # entry for commands
-        self.entry.place(x=10, y=540, width=435, height=22)
-        self.button.place(x=450, y=540, width=80, height=22)
+        self.entry.place(x=10, y=540, width=435-80, height=22)
+        self.btn_send.place(x=450-80, y=540, width=80, height=22)
+        self.btn_file.place(x=450+10, y=540, width=80, height=22)
 
     # centring window
     def centerWindow(self):
@@ -156,15 +159,41 @@ class MainForm(Frame):
         self.text_console.config(state='disabled')
         self.root_reg.destroy()
         
-
     # send message event
-    def __button_send(self, event=None):
+    def __button_send_message(self, event=None):
         # check connection
-        if self.server.database is None:
+        if self.server.database.connection is None:
             return
+            if self.server.database.connection.is_connected():
+                return
 
         message = self.entry.get()
 
         self.server.send_message(message)
         self.server.write_console(f"Server: {message}")
         self.entry.delete(0, END)
+
+    # send file event
+    def __button_send_file(self, event=None):
+        # check connection
+        if self.server.database.connection is None:
+            return
+            if self.server.database.connection.is_connected():
+                return
+
+        file_path = fd.askopenfilename(
+            title='Open a file',
+            initialdir='/',
+            filetypes=(('text files', '*.txt'), ('All files', '*.*')))
+        
+        if len(file_path) == 0:
+            return
+
+        file_type = file_path.split('.')[-1]
+        with open(file_path, "rb") as f:
+            file_bytes = f.read()
+
+        snd_signal = threading.Thread(target=self.server.send_message, args=("STATE FILE",))
+        snd_signal.start()
+        snd = threading.Thread(target=self.server.send_file, args=(file_bytes, file_type))
+        snd.start()
