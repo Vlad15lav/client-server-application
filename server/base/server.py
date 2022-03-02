@@ -10,12 +10,14 @@ from hashlib import md5
 from db.database import MySQL
 from config.config import settings
 from tools.gen import generate_prime, generate_number, generate_primitive
-from cryptography.rsa import RSA
+from protection.rsa import RSA
+from protection.des import DES
 
 class Server:
 	def __init__(self, console):
 		self.console = console
 		self.online = {}
+		self.ciphers = {}
 
 		self.ipv4 = socket.gethostbyname(socket.gethostname()) # IPv4 address
 		self.ADDRESS = (self.ipv4, settings['PORT'])
@@ -35,11 +37,11 @@ class Server:
 		self.e, self.n = self.rsa.get_public()
 
 	# recv all package in one
-	def recvall(self, sock):
+	def recvall(self, sock, cipher):
 		BUFF_SIZE = 1024  # 4 KiB
 		data = b''
 		while True:
-			part = sock.recv(BUFF_SIZE)
+			part = cipher.encode(sock.recv(BUFF_SIZE), False)
 			data += part
 			if len(part) < BUFF_SIZE: break
 		return data
@@ -154,7 +156,9 @@ class Server:
 				user.send(f"AUTH 200:{self.g}:{self.p}:{A}".encode(settings['FORMAT']))
 				# recv parameters by client
 				B = int(user.recv(1024).decode(settings['FORMAT']))
-				Key = pow(B, a, self.p)
+				Key = str(pow(B, a, self.p))
+				Key = md5(Key.encode()).digest()[:8] # 8 byte for DES
+				print('DES Key - {}'.format(Key))
 
 				## send RSA public key by server
 				user.send(f"{self.e}:{self.n}".encode(settings['FORMAT']))
@@ -163,8 +167,10 @@ class Server:
 				pub_key_client = list(map(int, pub_key_client))
 
 				self.online[data_login] = user
+				self.ciphers[data_login] = DES(Key)
 				thread = threading.Thread(target=self.handle, args=(user, addr,
-																	data_login, pub_key_client))
+																	data_login,
+																	pub_key_client))
 				thread.start()
 
 			except Exception as e:
@@ -172,23 +178,25 @@ class Server:
 				break
 
 	# handle the incoming messages
-	def handle(self, user, addr, login, pub_key_client, cipher=None):
+	def handle(self, user, addr, login, pub_key_client):
 		self.write_console(f'{login} is connected!')
 		e, n = pub_key_client
+		print('{} public key:\ne - {}\nn - {}'.format(login, e, n))
 
 		while True:
 			try:
-				message = user.recv(1024).decode(settings['FORMATMSG']).split(':')
-				#message = cipher.encode(message).decode(settings['FORMATMSG'])
+				message = user.recv(1024)#.decode(settings['FORMATMSG']).split(':')
+				message = self.ciphers[login].encode(message, False).decode(settings['FORMATMSG']).split(':')
 
 				if message[0] == 'STATE CLOSE':
 					user.close() # close the connection
 					del self.online[login]
+					del self.ciphers[login]
 					break
 
 				elif message[0] == 'STATE FILE':
 					self.write_console(f"{login} is sending the file!")
-					file_info = self.recvall(user)
+					file_info = self.recvall(user, self.ciphers[login])
 					file_info = file_info.split(b':')
 					sign = int(file_info[0].decode(settings['FORMATMSG']))
 					file_type = file_info[1].decode(settings['FORMATMSG'])
@@ -224,16 +232,20 @@ class Server:
 	# send message for user
 	def send_message(self, msg):
 		for k, v in self.online.items():
-			v.send(msg.encode(settings['FORMATMSG']))
+			message = msg.encode(settings['FORMATMSG'])
+			v.send(self.ciphers[k].encode(message, True))
 
 	# send message for all users
 	def send_broadcast(self, msg):
 		for k, v in self.online.items():
-			v.send(msg.encode(settings['FORMATMSG']))
+			message = msg.encode(settings['FORMATMSG'])
+			v.send(self.ciphers[k].encode(message, True))
 
 	# send file method
 	def send_file(self, data, file_type):
 		hash_file = int(md5(data).hexdigest(), 16)
 		sign = self.rsa.decode(hash_file)
+		message = f"{sign}:{file_type}".encode(settings['FORMAT']) + b':' + data
+
 		for k, v in self.online.items():
-			v.send(f"{sign}:{file_type}".encode(settings['FORMAT']) + b':' + data)
+			v.send(self.ciphers[k].encode(message, True))

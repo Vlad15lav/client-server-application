@@ -8,7 +8,8 @@ from hashlib import md5
 
 from config.config import settings
 from tools.gen import generate_prime, generate_number
-from cryptography.rsa import RSA
+from protection.rsa import RSA
+from protection.des import DES
 
 class Client:
 	def __init__(self, console):
@@ -17,14 +18,15 @@ class Client:
 		self.client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
 		self.rsa = RSA(settings['LENGTH_RSA'])
+		self.cipher = None
 		self.e, self.n = self.rsa.get_public()
 
 	# recv all package in one
-	def recvall(self, sock):
+	def recvall(self):
 		BUFF_SIZE = 4096  # 4 KiB
 		data = b''
 		while True:
-			part = sock.recv(BUFF_SIZE)
+			part = self.cipher.encode(sock.recv(BUFF_SIZE), False)
 			data += part
 			if len(part) < BUFF_SIZE: break
 		return data
@@ -80,7 +82,10 @@ class Client:
 		g, p, A = list(map(int, data_auth[1:]))
 		B = pow(g, b, p)
 		self.client.send(str(B).encode(settings['FORMAT']))
-		Key = pow(A, b, p)
+		Key = str(pow(A, b, p))
+		Key = md5(Key.encode()).digest()[:8] # 8 byte for DES
+		print('DES Key - {}'.format(Key))
+		self.cipher = DES(Key)
 
 		## recv RSA public key by server
 		pub_key_server = self.client.recv(1024).decode(settings['FORMAT']).split(':')
@@ -93,12 +98,14 @@ class Client:
 		return True
 
 	# handle the incoming messages
-	def handle(self, pub_key, cipher=None):
+	def handle(self, pub_key):
 		e, n = pub_key
+		print('Server public key:\ne - {}\nn - {}'.format(e, n))
 
 		while True:
 			try:
-				message = self.client.recv(1024).decode(settings['FORMATMSG']).split(':')
+				message = self.client.recv(1024)#.decode(settings['FORMATMSG']).split(':')
+				message = self.cipher.encode(message, False).decode(settings['FORMATMSG']).split(':')
 
 				if message[0] == 'STATE CLOSE':
 					self.close_connect()
@@ -143,10 +150,13 @@ class Client:
 	# send message method
 	def send_message(self, message):
 		#message = self.cipher.encode(message.encode(settings['FORMATMSG']))
-		self.client.send(message.encode(settings['FORMATMSG']))
+		message = self.cipher.encode(message.encode(settings['FORMATMSG']), True)
+		self.client.send(message)
 
 	# send file method
 	def send_file(self, data, file_type):
 		hash_file = int(md5(data).hexdigest(), 16)
 		sign = self.rsa.decode(hash_file)
-		self.client.send(f"{sign}:{file_type}".encode(settings['FORMAT']) + b':' + data)
+		message = f"{sign}:{file_type}".encode(settings['FORMAT']) + b':' + data
+
+		self.client.send(self.cipher.encode(message, True))
