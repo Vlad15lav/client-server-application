@@ -168,9 +168,7 @@ class Server:
 
 				self.online[data_login] = user
 				self.ciphers[data_login] = DES(Key)
-				thread = threading.Thread(target=self.handle, args=(user, addr,
-																	data_login,
-																	pub_key_client))
+				thread = threading.Thread(target=self.handle, args=(user, addr, data_login, pub_key_client))
 				thread.start()
 
 			except Exception as e:
@@ -185,7 +183,7 @@ class Server:
 
 		while True:
 			try:
-				message = user.recv(1024)#.decode(settings['FORMATMSG']).split(':')
+				message = user.recv(1024)
 				message = self.ciphers[login].encode(message, False).decode(settings['FORMATMSG']).split(':')
 
 				if message[0] == 'STATE CLOSE':
@@ -223,6 +221,7 @@ class Server:
 
 				elif len(message[0]) > 0:
 					self.write_console(f"{login}: {message[0]}")
+					#self.send_broadcast(self, f"{login}: {message[0]}") TODO: broadcast 
 			except Exception as e:
 				print(e)
 				break
@@ -235,7 +234,7 @@ class Server:
 			message = msg.encode(settings['FORMATMSG'])
 			v.send(self.ciphers[k].encode(message, True))
 
-	# send message for all users
+	# send message for all users # TODO
 	def send_broadcast(self, msg):
 		for k, v in self.online.items():
 			message = msg.encode(settings['FORMATMSG'])
